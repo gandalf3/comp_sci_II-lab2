@@ -134,7 +134,7 @@ class ShowWinner(GameStateHandler):
 	
 	def cleanup(self):
 		self.win_obj.worldPosition = self.win_obj.worldPosition.lerp(self.win_pos, .1)
-		if self.time_elapsed >= 2:
+		if self.time_elapsed >= 2 if self.outcome != "tie" else .5:
 			return "finished"
 		
 
