@@ -1,10 +1,12 @@
 import bge
 import aud
 from math import floor
+from mathutils import Vector
 import ColorTheme
-from ColorUtils import transparent
+from ColorUtils import transparent, clamp
 from random import randrange
 import RPSLS
+from VelociText import VelociText
 from Typewriter import increment
 
 device = aud.device()
@@ -15,147 +17,225 @@ sounds = {
 	"pick": aud.Factory(bge.logic.expandPath('//sounds/misc_menu_4.wav')).volume(.5),
 	"nopick": aud.Factory(bge.logic.expandPath('//sounds/negative_2.wav')).volume(.5),
 	}
-
-class GameControl(bge.types.KX_GameObject):
-	def __init__(self, own):
-		self.gamestate = "intro"
-		
-		
-	def intro(self):
-		pass
+	
+# would rather these not be global, but o well.
+picks = {
+"player": None,
+"computer": None
+}
+#picks = {
+#"player": 0,
+#"computer": 3
+#}
 	
 	
-	def countdown(self):
+class GameStateHandler():
+	def __init__(self):
+		self.init = False
+		self.time_now = bge.logic.getRealTime()
+		self.time_begin = 0
+		self.time_elapsed = 0
+		self.doing_cleanup = False
+		
+	def run(self):
+		#self.scn = bge.logic.getCurrentScene()
+		self.time_now = bge.logic.getRealTime()
+		self.time_elapsed = self.time_now - self.time_begin
+		self.gameobject = bge.logic.getCurrentController().owner
+		
+		if self.init is False:
+			print("INIT")
+			self.init = True
+			self.handler_init = False
+			self.cleanup_init = False
+			self.doing_cleanup = False
+			self.time_begin = self.time_now
+			# bleh. Can't define these as None or something otherwise they won't be overridden by subclass methods, apparently. So have consider possible complete non-existance
+			# unfortunatly this as the side-effect of silencing ALL attribute errors which occur anywhere within state handler code D:
+			try:
+				print("SETUP")
+				self.setup()
+			except AttributeError:
+				pass
+		
+		# this basically a substate could probably be implented very neatly as a full on state (recursive class definitions, anyone?) but whatever.
+		if self.doing_cleanup:
+			if not self.cleanup_init:
+				self.cleanup_init = True
+				self.time_begin = self.time_now
+				self.time_elapsed = self.time_now - self.time_begin
+				
+			try:
+				print("CLEANUP")
+				c = self.cleanup()
+				if c == "finished":
+					self.init = False
+					return "finished"
+			except AttributeError:
+				self.init = False
+				return "finished"
+				# question, how to avoid copy/pasting things in try/catch blocks like this?
+				# see line 28 of Button.py for a more terrible example
+		else:
+			if not self.handler_init:
+				self.handler_init = True
+				print("STARTHANDLER")
+				self.time_begin = self.time_now
+				self.time_elapsed = self.time_now - self.time_begin
+			
+			try:
+				h = self.handler()
+				if h == "finished":
+					self.doing_cleanup = True
+			except AttributeError:
+				pass
+	
+# TODO: this thing should be split up into smaller pieces
+class ShowWinner(GameStateHandler):
+	def setup(self):
+		global picks
 		scn = bge.logic.getCurrentScene()
 		
-		if not self.get("countdown_init", False):
-			self["countdown_init"] = True
-			self.downcount_start = bge.logic.getRealTime()
-			self.downcount_time = self.downcount_start
-			self.next_count = -1
-			bge.logic.sendMessage("kill_highlights")
+		self.outcome, self.outcome_version = RPSLS.result(picks["player"], picks["computer"])
+		
+		self.score_obj = scn.objects['count_' + self.outcome]
+		self.textplace = False
+		
+		if self.outcome == "win":
+			self.win_obj = scn.objects[str(picks["player"])]
+			self.lose_pos = scn.objects[str(picks["computer"])].worldPosition.copy()
+			self.win_col = ColorTheme.primary
+		elif self.outcome == "loss":
+			self.win_obj = scn.objects[str(picks["computer"])]
+			self.lose_pos = scn.objects[str(picks["player"])].worldPosition.copy()
+			self.win_col = ColorTheme.alternate
+		if self.outcome == "tie":
+			device.play(sounds[self.outcome])
+			increment(self.score_obj)
+		else:
+			self.win_pos = self.win_obj.worldPosition.copy()
+			self.winlose_dist = (self.win_pos - self.lose_pos).length
+			self.distfac = (self.winlose_dist - .88) / self.winlose_dist
 			
-		self.downcount_time = bge.logic.getRealTime()
-		elapsed = (self.downcount_time - self.downcount_start)*2
+	def handler(self):
+		scn = bge.logic.getCurrentScene()
+
+		if self.outcome == "tie":
+			if self.time_now >= 3:
+				return "finished"
+			else:
+				return "not finished"
+		
+		fac = clamp((self.time_elapsed) * 2)**2
+		self.win_obj.worldPosition = self.win_pos.lerp(self.lose_pos, fac*self.distfac)
+		if self.textplace != True and fac >= 1:
+			self.textplace = True
+			if self.outcome_version is not None:
+				t = VelociText(scn.addObject("GenericText", self.win_obj))
+				t.text = self.win_obj["win_msg" + str(self.outcome_version+1)]
+				t.velocity = Vector((0,.03,0))
+				device.play(sounds[self.outcome])
+				increment(self.score_obj)
+				expand = scn.addObject("Expandipoo", self.win_obj)
+				expand.color = self.win_col
+				return "finished"
+	
+	def cleanup(self):
+		self.win_obj.worldPosition = self.win_obj.worldPosition.lerp(self.win_pos, .1)
+		print("elap", self.time_elapsed)
+		if self.time_elapsed >= 2:
+			return "finished"
+		
+
+
+class CountDown(GameStateHandler):
+	def setup(self):
+		self.next_count = -1
+		bge.logic.sendMessage("kill_highlights")
+	
+	def handler(self):
+		scn = bge.logic.getCurrentScene()
+		elapsed = self.time_elapsed*2
 		
 		if elapsed >= self.next_count+1 and self.next_count < 4:
 			self.next_count = floor(elapsed)
 			scn.addObject("Countdown" + str(self.next_count))
 		else:
 			if elapsed >= 6:
-				self.gamestate = "pick"
-				self["countdown_init"] = False
-				
+				return "finished"
 		
-	def pick(self):
+		
+class Pick(GameStateHandler):
+	def setup(self):
+		global picks
 		scn = bge.logic.getCurrentScene()
-		now = bge.logic.getRealTime()
 		
-		if not self.get("pick_init", 0):
-			self["pick_init"] = True
-			self.pick_start = now
-			self.player_pick = None
-			self.computer_pick = randrange(0, 4)
-			self.computer_click = scn.objects[str(self.computer_pick)]
-			self.computer_click.activate(ColorTheme.alternate)
+		self.player_pick = None
+		self.computer_pick = randrange(0, 4)
+		picks["computer"] = self.computer_pick
+		picks["player"] = None
+		self.computer_click = scn.objects[str(self.computer_pick)]
+		self.computer_click.activate(ColorTheme.alternate)
 		
-		if now - self.pick_start <= .5:
-			if len(self.sensors['Inbox'].bodies) > 0:
-				print("reception", self.sensors['Inbox'].bodies[0])
-				self.player_click = scn.objects[self.sensors['Inbox'].bodies[0]]
+	def handler(self):
+		global picks
+		scn = bge.logic.getCurrentScene()
+		
+		
+		if self.time_elapsed <= .5:
+			print(len(self.gameobject.sensors['Inbox'].bodies))
+			if len(self.gameobject.sensors['Inbox'].bodies) > 0:
+				self.player_click = scn.objects[self.gameobject.sensors['Inbox'].bodies[0]]
 				self.player_pick = self.player_click['strat']
+				picks["player"] = self.player_pick
 				self.player_click.activate(ColorTheme.primary)
 				device.play(sounds["pick"])
-				self.gamestate = "show_winner"
-				self["pick_init"] = False
-				
+				return "finished"
 		else:
 			print("You didn't pick at the right time")
 			device.play(sounds["nopick"])
-			self.gamestate = "play"
-			self["pick_init"] = False
+			return "finished"
 		
-		
-	def show_winner(self):
-		scn = bge.logic.getCurrentScene()
-		now = bge.logic.getRealTime()
-		
-		if not self.get("winner_init", 0):
-			self['winner_init'] = True
-			self['winner_done'] = False
-			self.win_display_start = now
-			self.outcome, self.outcome_version = RPSLS.result(self.player_pick, self.computer_pick)
-		
-			score_obj = scn.objects['count_' + self.outcome]
+
+class GameControl(bge.types.KX_GameObject):
+	def __init__(self, own):
+		self.gamestate = "intro"
 			
-			if self.outcome == "tie":
-				self.win_obj = scn.objects[str(self.player_pick)]
-				self.lose_pos = scn.objects[str(self.player_pick)].worldPosition.copy()
-	#   		 self.handle_tie()
-			elif self.outcome == "win":
-				self.win_obj = scn.objects[str(self.player_pick)]
-				self.lose_pos = scn.objects[str(self.computer_pick)].worldPosition.copy()
-	#   		 self.handle_win()
-			elif self.outcome == "loss":
-				self.win_obj = scn.objects[str(self.computer_pick)]
-				self.lose_pos = scn.objects[str(self.player_pick)].worldPosition.copy()
+		self.show_winner = ShowWinner()
+		self.countdown = CountDown()
+		self.pick = Pick()
+		
 
-			self.win_pos = self.win_obj.worldPosition.copy()
-			self.winlose_dist = (self.win_pos - self.lose_pos).length
-			
-		print("move", self.win_pos, self.lose_pos, self.winlose_dist)
-		elapsed = now - self.win_display_start
-		self.win_obj.worldPosition = self.win_pos.lerp(self.lose_pos, 1-((elapsed-1)**2))
-		if self.outcome_version is not None:
-			t = scn.addObject("GenericText", self.win_obj)
-			t.text = self.win_obj["win_msg" + str(self.outcome_version+1)]
-		#print(win_obj)
-		#win_obj.worldPosition.lerp(lose_obj.worldPosition, .5)
-#   		 self.handle_loss()
-
-		
-		
-		if now - self.win_display_start > 1:
-			self['winner_init'] = False
-			self.gamestate = "play"
-
-	
-	def handle_tie(self):
-		scn = bge.logic.getCurrentScene()
-		score_ob = scn.objects['Ties']
-		increment(score_ob)
-		device.play(sounds["tie"])
-		
-		
-		print("tie")
-		
-		
-	def handle_win(self):
-		scn = bge.logic.getCurrentScene()
-		score_ob = scn.objects['Ties']
-		increment(score_ob)
-		device.play(sounds["win"])
-		print("win")
-		
-		
-	def handle_loss(self):
-		device.play(sounds["loss"])
-		print("loss")
-	
 	def prettyfade(self):
 		#TODO: do pretty graphical flippantry here
 		self.gamestate = "play"
 		
 	
 	def main(self):
+		
+		# possibly make this cleaner by letting the next state be specified by the individual state handlers
 		if self.gamestate == "intro":
 			self.prettyfade()
+			
 		elif self.gamestate == "play":
-			self.countdown()
+			status = self.countdown.run()
+			if status == "finished":
+				self.gamestate = "pick"
+				
 		elif self.gamestate == "pick":
-			self.pick()
+			status = self.pick.run()
+			if status == "finished":
+				# this is why
+				if picks["player"] is None:
+					self.gamestate = "play"
+				else:
+					self.gamestate = "show_winner"
+			
 		elif self.gamestate == "show_winner":
-			self.show_winner()
+			status = self.show_winner.run()
+			if status == "finished":
+				self.gamestate = "play"
+			
 		
 def main(cont):
 	own = cont.owner
@@ -165,12 +245,4 @@ def main(cont):
 		own = GameControl(own)
 	own.main()
 	
-	
-	
-def fade(cont):
-	own = cont.owner
-	
-	own.color = ([0.105857, 0.636756, 1.000000, .200000])
-	
-
 	

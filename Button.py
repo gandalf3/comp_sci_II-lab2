@@ -15,6 +15,7 @@ class Button(bge.types.KX_GameObject):
     def activate(self, color):
         scn = bge.logic.getCurrentScene()
         fill = scn.addObject("ActiveFill", self)
+        fill["parent"] = self
         fill.color.xyz = color.xyz
         
         self.children[0].color = (1,1,1,1)
@@ -25,13 +26,16 @@ class Button(bge.types.KX_GameObject):
     def mouseOver(self):
         scn = bge.logic.getCurrentScene()
         
+        # ew
         try:
             if not self.highlight.invalid:
                 self.highlight["fade"] = 1.5
             else:
                 self.highlight = scn.addObject("SelectionRing", self)
+                self.highlight["parent"] = self
         except AttributeError:
             self.highlight = scn.addObject("SelectionRing", self)
+            self.highlight["parent"] = self
             
         
     def mouseOff(self):

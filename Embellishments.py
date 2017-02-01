@@ -45,6 +45,10 @@ def count_char(cont):
         
         
         
+def follow_parent(own):
+    if "parent" in own:
+        own.worldPosition = own["parent"].worldPosition
+        
 def highlighter(cont):
     own = cont.owner
     
@@ -52,6 +56,7 @@ def highlighter(cont):
         own["highlight_init"] = True
         own["fade"] = 1.5
         
+    follow_parent(own)
     own['fade'] = own['fade']-.05
     own.color[3] = clamp(own['fade'])
     if own['fade'] <= 0:
@@ -60,6 +65,7 @@ def highlighter(cont):
 def filler(cont):
     own = cont.owner
     
+    follow_parent(own)
     if "filler_init" not in own:
         own["filler_init"] = True
         own['scale'] = 0.0
@@ -92,3 +98,21 @@ def fixfont(cont):
     own = cont.owner
     
     own.resolution = 4
+    
+
+def expandipoo(cont):
+    own = cont.owner
+    if "begin" not in own:
+        own["begin"] = bge.logic.getRealTime()
+    
+    now = bge.logic.getRealTime() - own["begin"]
+    
+    fac = now**(1/5)
+    
+    own.localScale.xyz = fac*3
+    own.color[3] = 1-fac
+    
+    if now >= 1:
+        own.endObject()
+        
+        
