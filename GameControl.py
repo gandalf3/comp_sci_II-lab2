@@ -23,10 +23,6 @@ picks = {
 "player": None,
 "computer": None
 }
-#picks = {
-#"player": 0,
-#"computer": 3
-#}
 	
 	
 class GameStateHandler():
@@ -44,7 +40,6 @@ class GameStateHandler():
 		self.gameobject = bge.logic.getCurrentController().owner
 		
 		if self.init is False:
-			print("INIT")
 			self.init = True
 			self.handler_init = False
 			self.cleanup_init = False
@@ -53,7 +48,6 @@ class GameStateHandler():
 			# bleh. Can't define these as None or something otherwise they won't be overridden by subclass methods, apparently. So have consider possible complete non-existance
 			# unfortunatly this as the side-effect of silencing ALL attribute errors which occur anywhere within state handler code D:
 			try:
-				print("SETUP")
 				self.setup()
 			except AttributeError:
 				pass
@@ -66,7 +60,6 @@ class GameStateHandler():
 				self.time_elapsed = self.time_now - self.time_begin
 				
 			try:
-				print("CLEANUP")
 				c = self.cleanup()
 				if c == "finished":
 					self.init = False
@@ -79,7 +72,6 @@ class GameStateHandler():
 		else:
 			if not self.handler_init:
 				self.handler_init = True
-				print("STARTHANDLER")
 				self.time_begin = self.time_now
 				self.time_elapsed = self.time_now - self.time_begin
 			
@@ -142,7 +134,6 @@ class ShowWinner(GameStateHandler):
 	
 	def cleanup(self):
 		self.win_obj.worldPosition = self.win_obj.worldPosition.lerp(self.win_pos, .1)
-		print("elap", self.time_elapsed)
 		if self.time_elapsed >= 2:
 			return "finished"
 		
@@ -183,7 +174,6 @@ class Pick(GameStateHandler):
 		
 		
 		if self.time_elapsed <= .5:
-			print(len(self.gameobject.sensors['Inbox'].bodies))
 			if len(self.gameobject.sensors['Inbox'].bodies) > 0:
 				self.player_click = scn.objects[self.gameobject.sensors['Inbox'].bodies[0]]
 				self.player_pick = self.player_click['strat']
